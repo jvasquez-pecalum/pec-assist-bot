@@ -223,11 +223,14 @@ async def create_task(task: TaskRequest):
     if due_date:
         asana_task["data"]["due_on"] = due_date
     
-    # Add tags
+    # Add tags (optional - will be created if they don't exist, or skip if API fails)
+    # Note: Asana requires tag GIDs, not names. For now, we skip auto-tagging.
+    # You can manually create tags in Asana: password_reset, software_issue, hardware_issue, 
+    # access_request, urgency_low, urgency_medium, urgency_high, urgency_critical
     tags = task.tags or []
-    tags.append(task.intent)
-    tags.append(f"urgency_{task.urgency}")
-    asana_task["data"]["tags"] = tags
+    if tags:
+        # Only add tags if explicitly provided (must be valid tag GIDs)
+        asana_task["data"]["tags"] = tags
     
     logger.info(f"Creating Asana task: {task_name}")
     logger.debug(f"Asana payload: {asana_task}")
