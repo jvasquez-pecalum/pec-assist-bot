@@ -1,0 +1,12 @@
+# Add this to your Caddyfile - handles /asana/* routes
+
+# Option A: Path-based routing (Recommended)
+# Access via: https://pecn8n.westus2.cloudapp.azure.com:9443/asana/tasks
+handle_path /asana/* {
+    reverse_proxy asana-task:8000
+}
+
+# Option B: Dedicated port (if you prefer)
+# :9000 {
+#     reverse_proxy asana-task:8000
+# }
