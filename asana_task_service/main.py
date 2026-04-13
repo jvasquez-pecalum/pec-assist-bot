@@ -251,12 +251,31 @@ async def create_task(task: TaskRequest):
             
             response.raise_for_status()
             asana_data = response.json()
-            
+
             task_id = asana_data.get("data", {}).get("gid")
             task_url = f"https://app.asana.com/0/{ASANA_PROJECT_ID}/{task_id}" if ASANA_PROJECT_ID else None
-            
+
+            # Re-fetch the task to get auto-populated custom fields (e.g. ID auto-number)
+            if task_id:
+                try:
+                    refetch = await client.get(
+                        f"{ASANA_API_BASE}/tasks/{task_id}?opt_fields=custom_fields,custom_fields.display_value,custom_fields.name",
+                        headers={
+                            "Authorization": f"Bearer {ASANA_TOKEN}",
+                            "Accept": "application/json"
+                        },
+                        timeout=10.0
+                    )
+                    refetch.raise_for_status()
+                    refetch_data = refetch.json()
+                    # Merge updated custom_fields into original response
+                    if "data" in refetch_data and "custom_fields" in refetch_data["data"]:
+                        asana_data["data"]["custom_fields"] = refetch_data["data"]["custom_fields"]
+                except Exception as e:
+                    logger.warning(f"Failed to re-fetch task custom fields: {e}")
+
             logger.info(f"Task created successfully: {task_id}")
-            
+
             return TaskResponse(
                 success=True,
                 task_id=task_id,
