@@ -4,6 +4,7 @@ Receives task data from n8n and creates corresponding tasks in Asana.
 """
 
 import os
+import asyncio
 import logging
 from typing import Optional
 from datetime import datetime, timedelta
@@ -256,8 +257,10 @@ async def create_task(task: TaskRequest):
             task_url = f"https://app.asana.com/0/{ASANA_PROJECT_ID}/{task_id}" if ASANA_PROJECT_ID else None
 
             # Re-fetch the task to get auto-populated custom fields (e.g. ID auto-number)
+            # Asana needs a moment to assign auto-number values
             if task_id:
                 try:
+                    await asyncio.sleep(1)
                     refetch = await client.get(
                         f"{ASANA_API_BASE}/tasks/{task_id}?opt_fields=custom_fields,custom_fields.display_value,custom_fields.name",
                         headers={
