@@ -123,10 +123,21 @@ def _get_urgency_emoji(urgency: str) -> str:
 
 
 def _format_task_name(task: TaskRequest) -> str:
-    """Format task name with urgency and intent"""
+    """Format task name with urgency, intent, and summary"""
     emoji = _get_urgency_emoji(task.urgency)
     intent_display = task.intent.replace("_", " ").title()
-    return f"{emoji} [{intent_display}] {task.title}"
+    name = f"{emoji} [{intent_display}] {task.title}"
+    
+    # Append summary if provided and not already included in the title
+    if task.summary and task.summary not in task.title:
+        max_len = 500
+        suffix = f" | {task.summary}"
+        if len(name) + len(suffix) > max_len:
+            available = max_len - len(name) - 3
+            suffix = f" | {task.summary[:available]}..."
+        name += suffix
+    
+    return name
 
 
 def _format_task_notes(task: TaskRequest) -> str:
