@@ -27,10 +27,10 @@ cd ~/ai-initiative
 
 # Option A: Git clone (if you push to GitHub/Azure DevOps)
 git clone <your-repo-url> pec-assist-bot
-cp -r pec-assist-bot/asana_task_service ./
+cp -r pec-assist-bot/src/asana_task_service ./
 
 # Option B: Copy files via SCP from your local machine
-# scp -r asana_task_service pecn8nvm@vm-pec-n8n:~/ai-initiative/
+# scp -r src/asana_task_service pecn8nvm@vm-pec-n8n:~/ai-initiative/
 ```
 
 ### 2. Create Environment File
@@ -52,7 +52,7 @@ Edit `~/ai-initiative/docker-compose.yml` and add the `asana-task` service:
 
 ```yaml
   asana-task:
-    build: ./asana_task_service
+    build: ./src/asana_task_service
     container_name: asana-task
     restart: unless-stopped
     environment:
@@ -129,7 +129,7 @@ cd ~/ai-initiative
 
 # Pull latest changes (if using git)
 cd pec-assist-bot && git pull && cd ..
-cp -r pec-assist-bot/asana_task_service/* ./asana_task_service/
+cp -r pec-assist-bot/src/asana_task_service/* ./asana_task_service/
 
 # Rebuild and restart
 docker-compose up -d --build asana-task

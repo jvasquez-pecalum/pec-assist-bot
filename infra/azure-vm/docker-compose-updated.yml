@@ -69,7 +69,7 @@ services:
 
   # NEW: Asana Task Service
   asana-task:
-    build: ./asana_task_service
+    build: ./src/asana_task_service
     container_name: asana-task
     restart: unless-stopped
     environment:

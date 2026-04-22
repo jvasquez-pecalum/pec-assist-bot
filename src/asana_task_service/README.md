@@ -23,7 +23,7 @@ Asana Task Created
 ### 1. Install Dependencies
 
 ```bash
-cd asana_task_service
+cd src/asana_task_service
 pip install -r requirements.txt
 ```
 

@@ -54,3 +54,19 @@ htmlcov/
 # Azure VM specific (don't commit deployment artifacts)
 *.pem
 *.key
+
+# MCP / AI tool artifacts
+.playwright-mcp/
+
+# Generated artifacts (can be regenerated from scripts/)
+artifacts/*.pptx
+artifacts/*.html
+
+# Backup files (auto-generated)
+backups/
+
+# Rendered HTML outputs (source of truth is markdown in src/)
+stakeholder-package/html/
+
+# Data exports / reports
+*.csv
