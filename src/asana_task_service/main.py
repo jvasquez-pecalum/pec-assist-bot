@@ -10,6 +10,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
 import httpx
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +22,8 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+load_dotenv()
 
 # Configuration
 ASANA_API_BASE = "https://app.asana.com/api/1.0"
@@ -39,7 +42,7 @@ class TaskRequest(BaseModel):
     """Task creation request from n8n"""
     title: str = Field(..., min_length=1, max_length=500, description="Task title")
     description: Optional[str] = Field(None, max_length=50000, description="Task description/notes")
-    intent: str = Field(..., description="Classified intent: password_reset, software_issue, hardware_issue, access_request, general_inquiry")
+    intent: str = Field(..., description="Classified intent: password_reset, software_issue, hardware_issue, access_request, data_engineering, business_reports, business_intelligence, ai_initiatives, general_inquiry")
     urgency: str = Field(..., description="Urgency level: low, medium, high, critical")
     summary: Optional[str] = Field(None, description="LLM-generated summary of the request")
     sender_name: Optional[str] = Field(None, description="Teams user who sent the message")
