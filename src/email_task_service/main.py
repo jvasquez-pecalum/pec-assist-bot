@@ -13,8 +13,9 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, status, Query
+from fastapi import FastAPI, HTTPException, status, Query, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security.api_key import APIKeyHeader
 
 load_dotenv()
 
@@ -48,6 +49,7 @@ from services import (
 
 config = Config()
 logger = get_logger(__name__)
+APP_ENV = os.getenv("APP_ENV", "development")
 
 # Shared pipeline instance (injectable for tests)
 pipeline: Optional[EmailPipeline] = None
@@ -91,6 +93,29 @@ def _record_error(error: str, correlation_id: Optional[str] = None):
 
 
 # ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def require_api_key(api_key: Optional[str] = Security(_api_key_header)) -> str:
+    if not config.webhook_api_key:
+        if APP_ENV == "production":
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Service misconfigured: WEBHOOK_API_KEY not set",
+            )
+        return ""
+    if api_key != config.webhook_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key",
+        )
+    return api_key
+
+
+# ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
 
@@ -101,7 +126,6 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting Email Task Service (queue-driven, no IMAP poll)")
 
-    # Build injectable services
     classifier = OpenAIClassifier(mock=config.mock_openai)
     asana_client = AsanaTaskClient(mock=config.mock_asana)
     email_sender = SMTPEmailSender(mock=config.mock_smtp)
@@ -124,20 +148,38 @@ async def lifespan(app: FastAPI):
 # FastAPI app
 # ---------------------------------------------------------------------------
 
+_docs_url = None if APP_ENV == "production" else "/docs"
+_redoc_url = None if APP_ENV == "production" else "/redoc"
+
 app = FastAPI(
     title="PEC Assist — Email Task Service",
     description="FastAPI service for email-based Asana ticket creation (queue-driven)",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=_docs_url,
+    redoc_url=_redoc_url,
 )
+
+# CORS — backend-to-backend; default is no browser origins
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=bool(ALLOWED_ORIGINS),
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+# Rate limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +188,8 @@ app.add_middleware(
 
 
 @app.get("/email/health", response_model=HealthResponse)
-async def health_check():
+@limiter.limit("120/minute")
+async def health_check(request: Request):
     """Health check with runtime stats."""
     active_channel = "teams"
     try:
@@ -166,7 +209,8 @@ async def health_check():
 
 
 @app.get("/email/config")
-async def get_config():
+@limiter.limit("120/minute")
+async def get_config(request: Request):
     """Get current channel toggle state."""
     try:
         cfg = await pipeline.config_manager.get_config()
@@ -176,14 +220,16 @@ async def get_config():
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
+        logger.error(f"Failed to read config: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to read config: {e}",
+            detail="Failed to read channel configuration. Check service logs.",
         )
 
 
 @app.post("/email/config/toggle")
-async def toggle_channel(req: ToggleRequest):
+@limiter.limit("60/minute")
+async def toggle_channel(request: Request, req: ToggleRequest, _key: str = Security(require_api_key)):
     """Toggle active channel. Enforces mutual exclusivity."""
     try:
         result = await pipeline.config_manager.toggle(req.channel)
@@ -193,14 +239,17 @@ async def toggle_channel(req: ToggleRequest):
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
+        logger.error(f"Toggle failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Toggle failed: {e}",
+            detail="Failed to toggle channel. Check service logs.",
         )
 
 
 @app.get("/email/logs")
+@limiter.limit("120/minute")
 async def get_logs(
+    request: Request,
     lines: int = Query(default=100, ge=1, le=500),
     fmt: str = Query(default="json", pattern="^(json|text)$"),
 ):
@@ -210,11 +259,11 @@ async def get_logs(
 
 
 @app.get("/email/diagnostics")
-async def get_diagnostics():
+@limiter.limit("60/minute")
+async def get_diagnostics(request: Request):
     """Full diagnostic snapshot."""
     now = datetime.now(timezone.utc).isoformat()
 
-    # Env sanity (redact secrets)
     env_sanity = {
         "ASANA_SERVICE_URL_set": bool(config.asana_service_url),
         "OPENAI_API_KEY_set": bool(config.openai_api_key),
@@ -231,7 +280,6 @@ async def get_diagnostics():
         "SKIP_CHANNEL_CHECK": config.skip_channel_check,
     }
 
-    # Ping Supabase
     supabase_ping = {"ok": False, "latency_ms": None}
     try:
         start = datetime.now(timezone.utc)
@@ -240,7 +288,6 @@ async def get_diagnostics():
     except Exception as e:
         supabase_ping["error"] = str(e)
 
-    # Ping Asana service
     asana_ping = {"ok": False, "latency_ms": None}
     try:
         start = datetime.now(timezone.utc)
@@ -250,7 +297,6 @@ async def get_diagnostics():
     except Exception as e:
         asana_ping["error"] = str(e)
 
-    # Ping SMTP (lightweight: just check config)
     smtp_ping = {"ok": False}
     try:
         if config.smtp_host and config.imap_password:
@@ -280,7 +326,8 @@ async def get_diagnostics():
 
 
 @app.post("/email/simulate", response_model=SimulationResponse)
-async def simulate_email(req: SimulationRequest):
+@limiter.limit("60/minute")
+async def simulate_email(request: Request, req: SimulationRequest, _key: str = Security(require_api_key)):
     """Run a test email through the full pipeline without IMAP."""
     import time
     start_time = time.time()
@@ -308,7 +355,8 @@ async def simulate_email(req: SimulationRequest):
             from_email=email["from_email"],
         )
     except Exception as e:
-        errors.append(f"Classification: {e}")
+        logger.error(f"Classification failed in simulate [{corr_id}]: {e}")
+        errors.append("Classification failed. Check service logs.")
 
     if classification and classification.get("requires_task", True):
         asana_payload = build_asana_task_payload(
@@ -322,7 +370,8 @@ async def simulate_email(req: SimulationRequest):
         try:
             asana_response = await pipeline.asana_client.create_task(asana_payload)
         except Exception as e:
-            errors.append(f"Asana: {e}")
+            logger.error(f"Asana task creation failed in simulate [{corr_id}]: {e}")
+            errors.append("Asana task creation failed. Check service logs.")
 
     if classification:
         asana_url = asana_response.get("task_url") if asana_response else None
@@ -334,7 +383,8 @@ async def simulate_email(req: SimulationRequest):
                 body=reply_body,
             )
         except Exception as e:
-            errors.append(f"Reply: {e}")
+            logger.error(f"Reply send failed in simulate [{corr_id}]: {e}")
+            errors.append("Auto-reply failed. Check service logs.")
 
     duration_ms = int((time.time() - start_time) * 1000)
 
@@ -363,7 +413,6 @@ async def root():
             "diagnostics": "GET /email/diagnostics",
             "simulate": "POST /email/simulate",
         },
-        "docs": "/docs",
     }
 
 
