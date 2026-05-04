@@ -8,11 +8,11 @@ from pydantic import BaseModel, Field
 
 class EmailTaskRequest(BaseModel):
     """Legacy model — kept for compatibility."""
-    subject: str
-    body: Optional[str] = None
-    from_name: Optional[str] = None
-    from_email: str
-    message_id: Optional[str] = None
+    subject: str = Field(..., max_length=500)
+    body: Optional[str] = Field(None, max_length=50000)
+    from_name: Optional[str] = Field(None, max_length=200)
+    from_email: str = Field(..., max_length=254)
+    message_id: Optional[str] = Field(None, max_length=255)
 
 
 class HealthResponse(BaseModel):
@@ -35,11 +35,11 @@ class ToggleRequest(BaseModel):
 
 
 class SimulationRequest(BaseModel):
-    subject: str
-    body: Optional[str] = None
-    from_name: Optional[str] = None
-    from_email: str
-    message_id: Optional[str] = None
+    subject: str = Field(..., max_length=500)
+    body: Optional[str] = Field(None, max_length=50000)
+    from_name: Optional[str] = Field(None, max_length=200)
+    from_email: str = Field(..., max_length=254)
+    message_id: Optional[str] = Field(None, max_length=255)
 
 
 class SimulationResponse(BaseModel):
