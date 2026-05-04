@@ -22,6 +22,9 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+pip-log.txt
+pip-delete-this-directory.txt
+MANIFEST
 
 # Environment variables
 .env
@@ -31,32 +34,85 @@ wheels/
 # IDE
 .vscode/
 .idea/
+.vs/
+.sublimetext/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
+.DS_Store
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Node.js (for n8n and other tools)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.node-gyp/
+
+# Package managers
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
 
 # Logs
 *.log
 logs/
+log/
 
 # Testing
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+.tox/
+.hypothesis/
 
 # Docker
 .dockerignore
+docker-compose.override.yml
 
 # Azure VM specific (don't commit deployment artifacts)
 *.pem
 *.key
+*.crt
+*.p12
+*.pfx
+
+# Credentials and secrets
+secrets/
+credentials.json
+.aws/
+.gcp/
+credentials/
 
 # MCP / AI tool artifacts
 .playwright-mcp/
+.claude/
+.anthropic/
+
+# n8n specific
+.n8n/
+.n8n.json
+n8n-credentials.json
+n8n.db
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.sql
 
 # Generated artifacts (can be regenerated from scripts/)
 artifacts/*.pptx
@@ -64,9 +120,45 @@ artifacts/*.html
 
 # Backup files (auto-generated)
 backups/
+*.bak
+*.backup
+*.tmp
+*.swp
 
 # Rendered HTML outputs (source of truth is markdown in src/)
 stakeholder-package/html/
 
 # Data exports / reports
 *.csv
+*.xlsx
+*.xls
+report/
+reports/
+
+# IDE Python configurations
+.pylintrc
+.flake8
+setup.cfg
+tox.ini
+
+# Compiled files
+*.o
+*.a
+*.out
+
+# Virtual environment variations
+.venv/
+.env.venv
+env.bak/
+venv.bak/
+
+# Temporary development files
+*.todo
+TODO
+.tmp/
+temp/
+
+# OS-generated folders
+.AppleDouble
+.LSOverride
+$RECYCLE.BIN/
