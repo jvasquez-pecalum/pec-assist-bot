@@ -8,6 +8,7 @@ import uuid
 import json
 import asyncio
 import logging
+import urllib.parse
 from datetime import datetime, timezone
 from typing import Optional
 from dataclasses import dataclass
@@ -57,7 +58,8 @@ def get_logger(name: str) -> logging.Logger:
         else:
             handler.setFormatter(JsonFormatter())
         logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+    _level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+    logger.setLevel(_level)
     return logger
 
 
@@ -332,11 +334,16 @@ class AsanaTaskClient:
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
 
+        _api_key = os.getenv("ASANA_SERVICE_API_KEY", "")
+        headers = {"Content-Type": "application/json"}
+        if _api_key:
+            headers["X-API-Key"] = _api_key
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"{self.service_url}/tasks",
                 json=payload,
-                headers={"Content-Type": "application/json"},
+                headers=headers,
             )
             response.raise_for_status()
             return response.json()
@@ -467,11 +474,12 @@ class SupabaseConfigManager:
         if not self.supabase_url or not self.supabase_key:
             return None
 
-        url = f"{self.supabase_url}/rest/v1/email_requests?message_id=eq.{message_id}&select=*"
+        encoded_id = urllib.parse.quote(message_id, safe="")
+        url = f"{self.supabase_url}/rest/v1/email_requests?message_id=eq.{encoded_id}&select=*"
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(url, headers=self.headers)
             if response.status_code >= 400:
-                logger.warning("Failed to query email request", extra={"status": response.status_code, "body": response.text})
+                logger.warning("Failed to query email request", extra={"status": response.status_code})
                 return None
             rows = response.json()
             return rows[0] if rows else None
