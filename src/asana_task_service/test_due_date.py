@@ -264,3 +264,26 @@ def test_matrix_emits_correct_field_type(intent, urgency):
     else:
         assert result.due_on is not None, f"{intent}/{urgency} expected due_on"
         assert result.due_at is None
+
+
+from due_date import DueDate
+
+
+class TestDueDateInvariant:
+    def test_both_none_raises(self):
+        with pytest.raises(ValueError, match="Exactly one"):
+            DueDate()
+
+    def test_both_set_raises(self):
+        with pytest.raises(ValueError, match="Exactly one"):
+            DueDate(due_on="2026-05-21", due_at="2026-05-21T20:00:00+00:00")
+
+    def test_only_due_on_ok(self):
+        d = DueDate(due_on="2026-05-21")
+        assert d.due_on == "2026-05-21"
+        assert d.due_at is None
+
+    def test_only_due_at_ok(self):
+        d = DueDate(due_at="2026-05-21T20:00:00+00:00")
+        assert d.due_at == "2026-05-21T20:00:00+00:00"
+        assert d.due_on is None

@@ -110,6 +110,10 @@ class DueDate:
     due_on: Optional[str] = None
     due_at: Optional[str] = None
 
+    def __post_init__(self):
+        if (self.due_on is None) == (self.due_at is None):
+            raise ValueError("Exactly one of due_on/due_at must be set")
+
 
 def resolve_due_date(
     intent: str,
