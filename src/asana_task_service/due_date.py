@@ -26,7 +26,7 @@ _US_HOLIDAYS = holidays.UnitedStates()
 
 # "4h" sentinel = "+4 business hours" (datetime precision via due_at).
 # int N = N business days (date precision via due_on).
-SLA_MATRIX: dict[str, dict[str, "int | str"]] = {
+SLA_MATRIX: dict[str, dict[str, int | str]] = {
     "password_reset":        {"critical": "4h", "high": 1, "medium": 1, "low": 1},
     "software_issue":        {"critical": "4h", "high": 1, "medium": 3, "low": 5},
     "hardware_issue":        {"critical": "4h", "high": 1, "medium": 3, "low": 5},
