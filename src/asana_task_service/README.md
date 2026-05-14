@@ -156,12 +156,24 @@ Add an HTTP Request node after "Parse LLM JSON" in your workflow:
 
 ## Features
 
-- ✅ Urgency-based due date calculation (critical=same day, high=next day, etc.)
+- ✅ Intent × urgency SLA model with business-day + US holiday awareness (critical → +4 business hours via `due_at`; lower urgencies → N business days via `due_on`)
 - ✅ Visual priority indicators (🔴🟠🟡🟢 emojis)
 - ✅ Rich task descriptions with metadata
 - ✅ Auto-tagging by intent and urgency
 - ✅ Comprehensive error handling
 - ✅ Health check endpoint for monitoring
+
+## Due-date logic
+
+Due dates are computed by [`due_date.py`](due_date.py).
+
+- All math runs in `BUSINESS_TIMEZONE` (default `America/Los_Angeles`).
+- Business days skip Saturday, Sunday, and US federal holidays (via the `holidays` package).
+- `critical` urgency emits Asana's `due_at` field with a deadline `+4 business hours` from the request, clipped to `[BUSINESS_HOURS_START, BUSINESS_HOURS_END)`.
+- All other urgencies emit Asana's `due_on` with a date computed from the per-intent SLA matrix (see `SLA_MATRIX` in [`due_date.py`](due_date.py)).
+- If the client supplies an explicit `due_date`, past dates return HTTP 400, and weekends/holidays are rolled forward to the next business day.
+
+To tune SLAs, edit the `SLA_MATRIX` constant. To change the business calendar window, edit the env vars in `.env`.
 
 ## Docker Deployment
 
