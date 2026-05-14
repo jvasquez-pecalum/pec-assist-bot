@@ -248,3 +248,19 @@ class TestResolveDueDateFallback:
             "software_issue", "high", None, now=_utc(2026, 5, 21, 6, 0)
         )
         assert result.due_on == "2026-05-21"
+
+
+from due_date import SLA_MATRIX
+
+
+@pytest.mark.parametrize("intent", list(SLA_MATRIX.keys()))
+@pytest.mark.parametrize("urgency", ["critical", "high", "medium", "low"])
+def test_matrix_emits_correct_field_type(intent, urgency):
+    """Critical → due_at; everything else → due_on. Every cell."""
+    result = resolve_due_date(intent, urgency, None, now=_utc(2026, 5, 20, 17, 0))
+    if urgency == "critical":
+        assert result.due_at is not None, f"{intent}/{urgency} expected due_at"
+        assert result.due_on is None
+    else:
+        assert result.due_on is not None, f"{intent}/{urgency} expected due_on"
+        assert result.due_at is None
