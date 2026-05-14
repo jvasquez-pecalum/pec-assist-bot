@@ -8,7 +8,7 @@ import re
 import asyncio
 import logging
 from typing import Optional, Literal
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -26,6 +26,8 @@ from fastapi import FastAPI, HTTPException, status, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel, Field, EmailStr, field_validator
+
+from due_date import resolve_due_date
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -238,19 +240,6 @@ def _format_task_notes(task: TaskRequest) -> str:
     return "\n".join(lines)
 
 
-def _get_due_date_from_urgency(urgency: str) -> Optional[str]:
-    urgency_days = {
-        "critical": 0,
-        "high": 1,
-        "medium": 3,
-        "low": 7,
-    }
-    days = urgency_days.get(urgency.lower())
-    if days is not None:
-        due = datetime.utcnow() + timedelta(days=days)
-        return due.strftime("%Y-%m-%d")
-    return None
-
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -299,9 +288,16 @@ async def create_task(request: Request, task: TaskRequest, _key: str = Security(
     if task.assignee:
         asana_task["data"]["assignee"] = task.assignee
 
-    due_date = task.due_date or _get_due_date_from_urgency(task.urgency)
-    if due_date:
-        asana_task["data"]["due_on"] = due_date
+    try:
+        resolved = resolve_due_date(task.intent, task.urgency, task.due_date)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        )
+    if resolved.due_on:
+        asana_task["data"]["due_on"] = resolved.due_on
+    elif resolved.due_at:
+        asana_task["data"]["due_at"] = resolved.due_at
 
     tags = task.tags or []
     if tags:
