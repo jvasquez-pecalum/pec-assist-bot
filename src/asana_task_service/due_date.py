@@ -117,4 +117,24 @@ def resolve_due_date(
     client_supplied: Optional[str],
     now: Optional[datetime] = None,
 ) -> DueDate:
-    raise NotImplementedError
+    """Compute the Asana due-date for a task.
+
+    Returns a DueDate with exactly one of due_on / due_at set.
+
+    Raises:
+        ValueError: if client_supplied is malformed or in the past.
+    """
+    now = now if now is not None else datetime.now(timezone.utc)
+    now_local = now.astimezone(BUSINESS_TZ)
+
+    if client_supplied:
+        try:
+            parsed = datetime.strptime(client_supplied, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError("due_date must be YYYY-MM-DD")
+        if parsed < now_local.date():
+            raise ValueError("due_date is in the past")
+        rolled = _roll_forward_to_business_day(parsed)
+        return DueDate(due_on=rolled.isoformat())
+
+    raise NotImplementedError("matrix path not yet implemented")

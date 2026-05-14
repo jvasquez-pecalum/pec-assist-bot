@@ -141,3 +141,46 @@ class TestAddBusinessHours:
         # Fri 2026-05-22 3pm + 4h: 2h Fri, skip Sat/Sun/Mon(holiday) -> Tue 11am
         result = _add_business_hours(_pt(2026, 5, 22, 15, 0), 4)
         assert result == _pt(2026, 5, 26, 11, 0)
+
+
+from due_date import resolve_due_date
+
+
+def _utc(year, month, day, hour=0, minute=0) -> datetime:
+    return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+
+
+class TestResolveDueDateClientSupplied:
+    def test_valid_business_day_unchanged(self):
+        # client asks for Thu 2026-05-21; today is Wed 2026-05-20
+        result = resolve_due_date(
+            "software_issue", "high", "2026-05-21", now=_utc(2026, 5, 20, 18, 0)
+        )
+        assert result.due_on == "2026-05-21"
+        assert result.due_at is None
+
+    def test_saturday_rolls_to_monday(self):
+        result = resolve_due_date(
+            "software_issue", "high", "2026-05-16", now=_utc(2026, 5, 15, 18, 0)
+        )
+        assert result.due_on == "2026-05-18"
+
+    def test_holiday_rolls_forward(self):
+        # Memorial Day Mon 2026-05-25 -> Tue 2026-05-26
+        result = resolve_due_date(
+            "software_issue", "high", "2026-05-25", now=_utc(2026, 5, 22, 18, 0)
+        )
+        assert result.due_on == "2026-05-26"
+
+    def test_past_date_rejected(self):
+        # now = Wed 2026-05-20 18:00 UTC = Wed 11:00 PT. Client asks for Tue 5-19.
+        with pytest.raises(ValueError, match="past"):
+            resolve_due_date(
+                "software_issue", "high", "2026-05-19", now=_utc(2026, 5, 20, 18, 0)
+            )
+
+    def test_malformed_rejected(self):
+        with pytest.raises(ValueError, match="YYYY-MM-DD"):
+            resolve_due_date(
+                "software_issue", "high", "not-a-date", now=_utc(2026, 5, 20, 18, 0)
+            )
