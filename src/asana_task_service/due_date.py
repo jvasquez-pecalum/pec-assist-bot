@@ -36,6 +36,20 @@ def _roll_forward_to_business_day(d: date) -> date:
     return cursor
 
 
+def _advance_business_days(start: date, n: int) -> date:
+    """Walk forward day-by-day from `start`; only business days count toward `n`.
+
+    `n` must be >= 1. The result is always strictly after `start`.
+    """
+    cursor = start
+    remaining = n
+    while remaining > 0:
+        cursor += timedelta(days=1)
+        if _is_business_day(cursor):
+            remaining -= 1
+    return cursor
+
+
 # "4h" sentinel = "+4 business hours" (datetime precision via due_at).
 # int N = N business days (date precision via due_on).
 SLA_MATRIX: dict[str, dict[str, int | str]] = {

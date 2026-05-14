@@ -50,3 +50,29 @@ class TestRollForwardToBusinessDay:
     def test_sat_before_holiday_monday_rolls_through(self):
         # Sat 2026-05-23 -> Sun (skip) -> Mon (holiday, skip) -> Tue 2026-05-26
         assert _roll_forward_to_business_day(date(2026, 5, 23)) == date(2026, 5, 26)
+
+
+from due_date import _advance_business_days
+
+
+class TestAdvanceBusinessDays:
+    def test_wed_plus_one_is_thu(self):
+        # 2026-05-20 Wed + 1 -> 2026-05-21 Thu
+        assert _advance_business_days(date(2026, 5, 20), 1) == date(2026, 5, 21)
+
+    def test_fri_plus_one_skips_weekend_to_mon(self):
+        # 2026-05-15 Fri + 1 -> Sat (skip), Sun (skip), Mon 2026-05-18
+        assert _advance_business_days(date(2026, 5, 15), 1) == date(2026, 5, 18)
+
+    def test_fri_plus_one_skips_weekend_and_memorial_day(self):
+        # 2026-05-22 Fri + 1 -> Sat, Sun, Mon (Memorial Day) -> Tue 2026-05-26
+        assert _advance_business_days(date(2026, 5, 22), 1) == date(2026, 5, 26)
+
+    def test_three_business_days_from_wed(self):
+        # 2026-05-20 Wed + 3 -> Thu, Fri, Mon 2026-05-25 (Memorial Day, skip) -> Tue
+        # Walk: Thu(1), Fri(2), Sat(skip), Sun(skip), Mon-Memorial(skip), Tue(3)
+        assert _advance_business_days(date(2026, 5, 20), 3) == date(2026, 5, 26)
+
+    def test_sat_start_plus_one_is_mon(self):
+        # 2026-05-16 Sat + 1 -> Sun (skip), Mon 2026-05-18
+        assert _advance_business_days(date(2026, 5, 16), 1) == date(2026, 5, 18)
