@@ -50,6 +50,43 @@ def _advance_business_days(start: date, n: int) -> date:
     return cursor
 
 
+def _next_business_moment(dt: datetime) -> datetime:
+    """Return `dt` if it sits inside business hours on a business day; otherwise
+    fast-forward to the next business day's BUSINESS_HOURS_START.
+
+    Business hours interval is half-open: [START, END).
+    """
+    d = dt.date()
+    t = dt.time()
+    if _is_business_day(d) and BUSINESS_HOURS_START <= t < BUSINESS_HOURS_END:
+        return dt
+    if _is_business_day(d) and t < BUSINESS_HOURS_START:
+        return datetime.combine(d, BUSINESS_HOURS_START, tzinfo=dt.tzinfo)
+    next_day = d + timedelta(days=1)
+    while not _is_business_day(next_day):
+        next_day += timedelta(days=1)
+    return datetime.combine(next_day, BUSINESS_HOURS_START, tzinfo=dt.tzinfo)
+
+
+def _add_business_hours(start: datetime, hours: float) -> datetime:
+    """Add `hours` of business time to a tz-aware datetime.
+
+    Consumes time only inside the [START, END) window on business days.
+    """
+    cursor = _next_business_moment(start)
+    remaining = timedelta(hours=hours)
+    while remaining > timedelta(0):
+        end_of_day = datetime.combine(
+            cursor.date(), BUSINESS_HOURS_END, tzinfo=cursor.tzinfo
+        )
+        available_today = end_of_day - cursor
+        if remaining <= available_today:
+            return cursor + remaining
+        remaining -= available_today
+        cursor = _next_business_moment(end_of_day)
+    return cursor
+
+
 # "4h" sentinel = "+4 business hours" (datetime precision via due_at).
 # int N = N business days (date precision via due_on).
 SLA_MATRIX: dict[str, dict[str, int | str]] = {

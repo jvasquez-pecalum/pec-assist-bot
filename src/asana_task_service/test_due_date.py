@@ -76,3 +76,68 @@ class TestAdvanceBusinessDays:
     def test_sat_start_plus_one_is_mon(self):
         # 2026-05-16 Sat + 1 -> Sun (skip), Mon 2026-05-18
         assert _advance_business_days(date(2026, 5, 16), 1) == date(2026, 5, 18)
+
+
+from due_date import (
+    _add_business_hours,
+    _next_business_moment,
+)
+
+
+def _pt(year, month, day, hour=0, minute=0) -> datetime:
+    """Build a tz-aware datetime in BUSINESS_TZ."""
+    return datetime(year, month, day, hour, minute, tzinfo=BUSINESS_TZ)
+
+
+class TestNextBusinessMoment:
+    def test_inside_hours_unchanged(self):
+        dt = _pt(2026, 5, 20, 10, 0)  # Wed 10am
+        assert _next_business_moment(dt) == dt
+
+    def test_before_hours_jumps_to_today_start(self):
+        dt = _pt(2026, 5, 20, 7, 30)  # Wed 7:30am
+        assert _next_business_moment(dt) == _pt(2026, 5, 20, 9, 0)
+
+    def test_after_hours_jumps_to_next_business_start(self):
+        dt = _pt(2026, 5, 20, 19, 0)  # Wed 7pm
+        assert _next_business_moment(dt) == _pt(2026, 5, 21, 9, 0)
+
+    def test_saturday_jumps_to_monday_start(self):
+        dt = _pt(2026, 5, 16, 14, 0)  # Sat 2pm
+        assert _next_business_moment(dt) == _pt(2026, 5, 18, 9, 0)
+
+    def test_holiday_jumps_to_next_business_start(self):
+        dt = _pt(2026, 5, 25, 10, 0)  # Memorial Day Mon 10am
+        assert _next_business_moment(dt) == _pt(2026, 5, 26, 9, 0)
+
+    def test_end_of_hours_is_outside(self):
+        # 5pm exactly is NOT inside [9:00, 17:00)
+        dt = _pt(2026, 5, 20, 17, 0)
+        assert _next_business_moment(dt) == _pt(2026, 5, 21, 9, 0)
+
+
+class TestAddBusinessHours:
+    def test_4h_fits_within_day(self):
+        # Wed 10am + 4h = Wed 2pm
+        result = _add_business_hours(_pt(2026, 5, 20, 10, 0), 4)
+        assert result == _pt(2026, 5, 20, 14, 0)
+
+    def test_4h_crosses_into_next_day(self):
+        # Wed 3pm + 4h: 2h today (5pm cap), 2h Thu morning -> Thu 11am
+        result = _add_business_hours(_pt(2026, 5, 20, 15, 0), 4)
+        assert result == _pt(2026, 5, 21, 11, 0)
+
+    def test_4h_after_hours_starts_next_day(self):
+        # Wed 8pm + 4h -> Thu 9am + 4h -> Thu 1pm
+        result = _add_business_hours(_pt(2026, 5, 20, 20, 0), 4)
+        assert result == _pt(2026, 5, 21, 13, 0)
+
+    def test_4h_friday_afternoon_crosses_weekend(self):
+        # Fri 3pm + 4h: 2h Fri (to 5pm), 2h Mon morning -> Mon 11am
+        result = _add_business_hours(_pt(2026, 5, 15, 15, 0), 4)
+        assert result == _pt(2026, 5, 18, 11, 0)
+
+    def test_4h_friday_before_memorial_day(self):
+        # Fri 2026-05-22 3pm + 4h: 2h Fri, skip Sat/Sun/Mon(holiday) -> Tue 11am
+        result = _add_business_hours(_pt(2026, 5, 22, 15, 0), 4)
+        assert result == _pt(2026, 5, 26, 11, 0)
