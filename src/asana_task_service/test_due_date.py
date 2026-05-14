@@ -184,3 +184,67 @@ class TestResolveDueDateClientSupplied:
             resolve_due_date(
                 "software_issue", "high", "not-a-date", now=_utc(2026, 5, 20, 18, 0)
             )
+
+
+class TestResolveDueDateFallback:
+    def test_business_day_count_due_on(self):
+        # software_issue/high = 1 business day. Wed 2026-05-20 10am PT -> Thu 5-21
+        # Wed 17:00 UTC = Wed 10:00 PT
+        result = resolve_due_date(
+            "software_issue", "high", None, now=_utc(2026, 5, 20, 17, 0)
+        )
+        assert result.due_on == "2026-05-21"
+        assert result.due_at is None
+
+    def test_business_day_count_skips_weekend(self):
+        # software_issue/high = 1 BD. Fri 2026-05-15 10am PT -> Mon 5-18
+        result = resolve_due_date(
+            "software_issue", "high", None, now=_utc(2026, 5, 15, 17, 0)
+        )
+        assert result.due_on == "2026-05-18"
+
+    def test_business_day_count_skips_holiday(self):
+        # software_issue/high = 1 BD. Fri 2026-05-22 10am PT -> Tue 5-26
+        # (Sat, Sun, Mon=Memorial Day skipped)
+        result = resolve_due_date(
+            "software_issue", "high", None, now=_utc(2026, 5, 22, 17, 0)
+        )
+        assert result.due_on == "2026-05-26"
+
+    def test_critical_emits_due_at(self):
+        # critical = 4 business hours. Wed 2026-05-20 10am PT -> Wed 2pm PT
+        # Wed 10am PT = Wed 17:00 UTC. Wed 2pm PT = Wed 21:00 UTC.
+        result = resolve_due_date(
+            "software_issue", "critical", None, now=_utc(2026, 5, 20, 17, 0)
+        )
+        assert result.due_on is None
+        # ISO8601 UTC, ends in +00:00 or Z
+        assert result.due_at is not None
+        assert result.due_at.startswith("2026-05-20T21:00:00")
+
+    def test_critical_after_hours_rolls_to_next_business(self):
+        # Wed 2026-05-20 9pm PT = Thu 2026-05-21 04:00 UTC.
+        # Outside hours -> Thu 9am PT + 4h = Thu 1pm PT = Thu 20:00 UTC.
+        result = resolve_due_date(
+            "software_issue", "critical", None, now=_utc(2026, 5, 21, 4, 0)
+        )
+        assert result.due_at is not None
+        assert result.due_at.startswith("2026-05-21T20:00:00")
+
+    def test_late_friday_pt_critical_lands_monday(self):
+        # Fri 2026-05-15 11pm PT = Sat 2026-05-16 06:00 UTC.
+        # Outside hours, Sat is weekend -> Mon 9am PT + 4h = Mon 1pm PT = Mon 20:00 UTC.
+        result = resolve_due_date(
+            "software_issue", "critical", None, now=_utc(2026, 5, 16, 6, 0)
+        )
+        assert result.due_at is not None
+        assert result.due_at.startswith("2026-05-18T20:00:00")
+
+    def test_timezone_anchoring_late_pt_does_not_advance_date(self):
+        # Wed 2026-05-20 11pm PT = Thu 2026-05-21 06:00 UTC.
+        # Filed late Wed PT; software_issue/high (1 BD) -> Thu 5-21 (next BD from Wed),
+        # NOT Fri 5-22 (which would be the answer if naively using UTC date Thu).
+        result = resolve_due_date(
+            "software_issue", "high", None, now=_utc(2026, 5, 21, 6, 0)
+        )
+        assert result.due_on == "2026-05-21"

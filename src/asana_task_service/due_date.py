@@ -137,4 +137,11 @@ def resolve_due_date(
         rolled = _roll_forward_to_business_day(parsed)
         return DueDate(due_on=rolled.isoformat())
 
-    raise NotImplementedError("matrix path not yet implemented")
+    sla = SLA_MATRIX[intent][urgency]
+    if sla == "4h":
+        deadline_local = _add_business_hours(now_local, 4)
+        deadline_utc = deadline_local.astimezone(timezone.utc)
+        return DueDate(due_at=deadline_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00"))
+    assert isinstance(sla, int)
+    target = _advance_business_days(now_local.date(), sla)
+    return DueDate(due_on=target.isoformat())
