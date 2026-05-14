@@ -24,6 +24,18 @@ BUSINESS_HOURS_END: time = _parse_hhmm(os.getenv("BUSINESS_HOURS_END", "17:00"))
 
 _US_HOLIDAYS = holidays.UnitedStates()
 
+
+def _is_business_day(d: date) -> bool:
+    return d.weekday() < 5 and d not in _US_HOLIDAYS
+
+
+def _roll_forward_to_business_day(d: date) -> date:
+    cursor = d
+    while not _is_business_day(cursor):
+        cursor += timedelta(days=1)
+    return cursor
+
+
 # "4h" sentinel = "+4 business hours" (datetime precision via due_at).
 # int N = N business days (date precision via due_on).
 SLA_MATRIX: dict[str, dict[str, int | str]] = {
