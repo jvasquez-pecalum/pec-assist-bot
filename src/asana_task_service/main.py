@@ -235,7 +235,7 @@ def _format_task_notes(task: TaskRequest) -> str:
     if task.chat_id:
         lines.append(f"- **Chat ID:** {task.chat_id}")
 
-    lines.append(f"- **Created:** {datetime.utcnow().isoformat()}Z")
+    lines.append(f"- **Created:** {datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')}")
 
     return "\n".join(lines)
 
@@ -251,7 +251,7 @@ async def health_check(request: Request):
     """Health check endpoint"""
     return HealthResponse(
         status="healthy",
-        timestamp=datetime.utcnow().isoformat() + "Z",
+        timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         asana_configured=bool(ASANA_TOKEN and ASANA_PROJECT_ID),
     )
 
@@ -350,7 +350,7 @@ async def create_task(request: Request, task: TaskRequest, _key: str = Security(
                 task_id=task_id,
                 task_url=task_url,
                 message="Task created successfully in Asana",
-                created_at=datetime.utcnow().isoformat() + "Z",
+                created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             )
 
         except httpx.HTTPStatusError as e:
