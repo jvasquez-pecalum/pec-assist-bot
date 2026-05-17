@@ -26,6 +26,8 @@ from models import (
     ToggleRequest,
     SimulationRequest,
     SimulationResponse,
+    ProcessRequest,
+    ProcessResponse,
     DiagnosticsResponse,
 )
 import httpx
@@ -411,6 +413,34 @@ async def simulate_email(request: Request, req: SimulationRequest, _key: str = S
     )
 
 
+@app.post("/email/process", response_model=ProcessResponse)
+@limiter.limit("60/minute")
+async def process_email_endpoint(
+    request: Request,
+    req: ProcessRequest,
+    _key: str = Security(require_api_key),
+):
+    """Production endpoint: run an inbound email through the full pipeline.
+
+    Differs from /email/simulate by enforcing dedup (Supabase message_id lookup)
+    and the channel-active toggle. Use this for real email producers (n8n IMAP
+    trigger, cron poller, etc.) where retries can deliver the same message twice.
+    """
+    corr_id = f"proc-{uuid.uuid4().hex[:8]}"
+    email = {
+        "subject": req.subject,
+        "body": req.body,
+        "from_name": req.from_name,
+        "from_email": req.from_email,
+        "message_id": req.message_id,
+    }
+    result = await pipeline.process_email(email, corr_id)
+    _record_processed(email, result, corr_id)
+    if result.get("error"):
+        _record_error(result["error"], corr_id)
+    return ProcessResponse(**result)
+
+
 @app.get("/")
 async def root():
     return {
@@ -423,7 +453,8 @@ async def root():
             "toggle": "POST /email/config/toggle",
             "logs": "GET /email/logs",
             "diagnostics": "GET /email/diagnostics",
-            "simulate": "POST /email/simulate",
+            "simulate": "POST /email/simulate (testing — no dedup)",
+            "process": "POST /email/process (production — with dedup)",
         },
     }
 

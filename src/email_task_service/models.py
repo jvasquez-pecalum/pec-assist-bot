@@ -52,6 +52,25 @@ class SimulationResponse(BaseModel):
     duration_ms: int = 0
 
 
+class ProcessRequest(BaseModel):
+    """Production-pipeline input. message_id is required because it's the dedup key."""
+    subject: str = Field(..., max_length=500)
+    body: Optional[str] = Field(None, max_length=50000)
+    from_name: Optional[str] = Field(None, max_length=200)
+    from_email: str = Field(..., max_length=254)
+    message_id: str = Field(..., max_length=255)
+
+
+class ProcessResponse(BaseModel):
+    """Mirrors the dict returned by EmailPipeline.process_email."""
+    correlation_id: str
+    classification: Optional[dict] = None
+    asana_response: Optional[dict] = None
+    reply_sent: bool = False
+    error: Optional[str] = None
+    marked_seen: bool = False
+
+
 class DiagnosticsResponse(BaseModel):
     service: str
     timestamp: str
