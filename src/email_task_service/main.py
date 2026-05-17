@@ -41,6 +41,7 @@ from services import (
     ring_handler,
     logger as svc_logger,
     get_logger,
+    _logo_inline_images,
 )
 
 # ---------------------------------------------------------------------------
@@ -373,14 +374,25 @@ async def simulate_email(request: Request, req: SimulationRequest, _key: str = S
             logger.error(f"Asana task creation failed in simulate [{corr_id}]: {e}")
             errors.append("Asana task creation failed. Check service logs.")
 
+    reply_body = None
     if classification:
-        asana_url = asana_response.get("task_url") if asana_response else None
-        reply_body = format_auto_reply(classification, asana_url)
+        ar = asana_response or {}
+        text_body, html_body = format_auto_reply(
+            classification=classification,
+            from_name=email.get("from_name"),
+            ticket_id=ar.get("friendly_id") or ar.get("task_id"),
+            task_name=ar.get("task_name"),
+            due_on=ar.get("due_on"),
+            due_at=ar.get("due_at"),
+        )
+        reply_body = text_body
         try:
             await pipeline.email_sender.send_reply(
                 to_email=email["from_email"],
                 subject=email["subject"],
-                body=reply_body,
+                text_body=text_body,
+                html_body=html_body,
+                inline_images=_logo_inline_images(),
             )
         except Exception as e:
             logger.error(f"Reply send failed in simulate [{corr_id}]: {e}")

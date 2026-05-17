@@ -126,8 +126,29 @@ class TaskResponse(BaseModel):
     success: bool
     task_id: Optional[str] = None
     task_url: Optional[str] = None
+    task_name: Optional[str] = None
+    friendly_id: Optional[str] = None  # User-facing ticket ID from Asana "ID" custom field (e.g. "ID-49")
+    due_on: Optional[str] = None
+    due_at: Optional[str] = None
     message: str
     created_at: str
+
+
+# Asana custom field whose display_value is the user-facing ticket ID (e.g. "ID-49").
+# Configurable via env in case the field is renamed.
+FRIENDLY_ID_FIELD_NAME = os.getenv("ASANA_FRIENDLY_ID_FIELD", "ID")
+
+
+def _extract_friendly_id(custom_fields: list[dict]) -> Optional[str]:
+    """Pull the user-facing ticket ID (display_value) from the named custom field."""
+    if not custom_fields:
+        return None
+    for field in custom_fields:
+        if field.get("name") == FRIENDLY_ID_FIELD_NAME:
+            value = field.get("display_value")
+            if value:
+                return str(value)
+    return None
 
 
 class HealthResponse(BaseModel):
@@ -343,12 +364,17 @@ async def create_task(request: Request, task: TaskRequest, _key: str = Security(
                 except Exception as e:
                     logger.warning(f"Failed to re-fetch task custom fields: {e}")
 
-            logger.info(f"Task created successfully: {task_id}")
+            friendly_id = _extract_friendly_id(asana_data.get("data", {}).get("custom_fields", []))
+            logger.info(f"Task created successfully: gid={task_id} friendly_id={friendly_id}")
 
             return TaskResponse(
                 success=True,
                 task_id=task_id,
                 task_url=task_url,
+                task_name=task_name,
+                friendly_id=friendly_id,
+                due_on=resolved.due_on,
+                due_at=resolved.due_at,
                 message="Task created successfully in Asana",
                 created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             )

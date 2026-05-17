@@ -25,6 +25,7 @@ from services import (
 
 VALID_INTENTS = {
     "password_reset", "software_issue", "hardware_issue", "access_request",
+    "general_support", "other",
     "data_engineering", "business_reports", "business_intelligence",
     "ai_initiatives", "general_inquiry",
 }
@@ -119,7 +120,7 @@ async def test_smtp_sender_delivers_email():
     result = await sender.send_reply(
         to_email=recipient,
         subject="[REAL-SVC-TEST] Email Task Service SMTP check",
-        body=(
+        text_body=(
             "This is an automated real-service test sent by test_real_services.py.\n"
             "MOCK_SMTP=false was confirmed working if you are reading this."
         ),

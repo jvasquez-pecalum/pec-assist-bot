@@ -156,7 +156,9 @@ CLASSIFICATION RULES:
 6. business_reports: Report generation, scheduling
 7. business_intelligence: Dashboard issues, KPI queries
 8. ai_initiatives: AI/ML requests, automation
-9. general_inquiry: Questions about policies, how-to, greetings
+9. general_support: General IT help, troubleshooting, how-to requests
+10. general_inquiry: Questions about policies, greetings, non-IT topics
+11. other: Anything that does not fit the above categories
 
 URGENCY RULES:
 - critical: User cannot work at all
@@ -204,39 +206,331 @@ def parse_classification_response(raw: str) -> dict:
         raise
 
 
-def format_auto_reply(classification: dict, asana_task_url: Optional[str]) -> str:
-    """Format the auto-reply email body."""
-    intent_display = classification.get("intent", "request").replace("_", " ").title()
-    urgency = classification.get("urgency", "medium").upper()
+def _logo_inline_images() -> dict[str, str]:
+    """Return {cid: path} for the PEC logo.
+
+    Looks in the service-local assets/ first (production / Docker), then falls
+    back to the repo-root assets/ (local dev when running uvicorn from src/).
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, "assets", "pec-logo.png"),
+        os.path.abspath(os.path.join(here, "..", "..", "assets", "pec-logo.png")),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return {"peclogo": path}
+    return {}
+
+
+_URGENCY_STYLE = {
+    "critical": {"bg": "#dc2626", "fg": "#ffffff", "label": "CRITICAL"},
+    "high":     {"bg": "#FFCC00", "fg": "#111111", "label": "HIGH"},
+    "medium":   {"bg": "#F0F0F0", "fg": "#111111", "label": "MEDIUM"},
+    "low":      {"bg": "#16a34a", "fg": "#ffffff", "label": "LOW"},
+}
+
+
+def _first_name(name: Optional[str]) -> Optional[str]:
+    """Return the first token of a display name, or None if empty/missing."""
+    if not name:
+        return None
+    token = name.strip().split()[0] if name.strip() else ""
+    return token or None
+
+
+def _format_eta(due_on: Optional[str], due_at: Optional[str]) -> Optional[str]:
+    """Friendly ETA string matching what was committed to the Asana ticket."""
+    if due_at:
+        try:
+            dt_utc = datetime.fromisoformat(due_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        try:
+            from zoneinfo import ZoneInfo
+            tz_name = os.getenv("BUSINESS_TIMEZONE", "America/Los_Angeles")
+            local = dt_utc.astimezone(ZoneInfo(tz_name))
+            tz_abbrev = local.strftime("%Z") or "PT"
+            hour_12 = local.strftime("%I").lstrip("0") or "12"
+            time_str = f"{hour_12}:{local.strftime('%M %p')}"
+            return f"Within 4 business hours (by {local.strftime('%a, %b %d')} · {time_str} {tz_abbrev})"
+        except Exception:
+            return f"Within 4 business hours (by {dt_utc.strftime('%a, %b %d %H:%M UTC')})"
+    if due_on:
+        try:
+            d = datetime.strptime(due_on, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+        return f"By {d.strftime('%a, %b %d')}"
+    return None
+
+
+def format_auto_reply(
+    classification: dict,
+    from_name: Optional[str],
+    ticket_id: Optional[str],
+    task_name: Optional[str],
+    due_on: Optional[str],
+    due_at: Optional[str],
+) -> tuple[str, str]:
+    """Format the auto-reply as (text_body, html_body).
+
+    `ticket_id` is the user-facing ID (e.g. "ID-49") returned by the Asana service.
+    """
+    intent_raw = classification.get("intent", "general_inquiry")
+    intent_display = intent_raw.replace("_", " ").upper()
+    urgency_raw = (classification.get("urgency") or "medium").lower()
+    urgency_style = _URGENCY_STYLE.get(urgency_raw, _URGENCY_STYLE["medium"])
     summary = classification.get("summary", "Your request has been received.")
 
-    lines = [
-        f"Hello,",
+    first = _first_name(from_name)
+    greeting = f"Hello {first}," if first else "Hello,"
+    eta = _format_eta(due_on, due_at)
+
+    text_lines = [
+        greeting,
         "",
-        f"Thank you for contacting PEC Assist. We have received your {intent_display} request.",
+        f"Thank you for contacting PEC Assist. We have received your {intent_display.title()}.",
         "",
         f"Summary: {summary}",
-        f"Priority: {urgency}",
+        f"Priority: {urgency_style['label']}",
     ]
-
-    if asana_task_url:
-        lines.extend([
-            "",
-            f"Ticket: {asana_task_url}",
-        ])
+    if ticket_id:
+        text_lines += ["", "Ticket:", f"  ID:    {ticket_id}", f"  Title: {task_name or '(unnamed)'}"]
     else:
-        lines.extend([
-            "",
-            "Your request does not require a ticket at this time, but our team will review it.",
-        ])
+        text_lines += ["", "Your request does not require a ticket; our team will review it."]
+    if eta:
+        text_lines += ["", f"Target response: {eta}"]
+    text_lines += ["", "---", "This is an automated response from PEC Assist."]
+    text_body = "\n".join(text_lines)
 
-    lines.extend([
-        "",
-        "---",
-        "This is an automated response from PEC Assist.",
-    ])
+    html_body = _render_html_reply(
+        greeting=greeting,
+        intent_display=intent_display,
+        urgency_style=urgency_style,
+        summary=summary,
+        ticket_id=ticket_id,
+        task_name=task_name,
+        eta=eta,
+    )
+    return text_body, html_body
 
-    return "\n".join(lines)
+
+def _esc(s: Optional[str]) -> str:
+    """Minimal HTML escaping for text inserted into the template."""
+    if s is None:
+        return ""
+    return (
+        s.replace("&", "&amp;")
+         .replace("<", "&lt;")
+         .replace(">", "&gt;")
+         .replace('"', "&quot;")
+    )
+
+
+def _render_html_reply(
+    greeting: str,
+    intent_display: str,
+    urgency_style: dict,
+    summary: str,
+    ticket_id: Optional[str],
+    task_name: Optional[str],
+    eta: Optional[str],
+) -> str:
+    """Render the branded HTML auto-reply (table-based, inline CSS, email-safe)."""
+    pe_black = "#111111"
+    pe_yellow = "#FFCC00"
+    pe_gray = "#F0F0F0"
+    pe_darkgray = "#222222"
+    font_stack = "Inter, -apple-system, 'Segoe UI', Arial, sans-serif"
+
+    badge_bg = urgency_style["bg"]
+    badge_fg = urgency_style["fg"]
+    badge_label = urgency_style["label"]
+
+    ticket_block = ""
+    if ticket_id:
+        ticket_block = f"""
+        <tr>
+          <td style="padding:0 32px 24px 32px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                   style="border:3px solid {pe_black}; background-color:#ffffff;">
+              <tr>
+                <td style="padding:12px 16px; border-bottom:3px solid {pe_black}; background-color:{pe_yellow};
+                           font-family:{font_stack}; font-size:12px; font-weight:900; letter-spacing:0.1em;
+                           color:{pe_black}; text-transform:uppercase;">
+                  Ticket
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:16px;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="font-family:{font_stack}; font-size:11px; font-weight:900; letter-spacing:0.1em;
+                                 text-transform:uppercase; color:{pe_darkgray}; padding:0 12px 4px 0; vertical-align:top;">
+                        ID
+                      </td>
+                      <td style="font-family:'JetBrains Mono', Consolas, monospace; font-size:14px; font-weight:600;
+                                 color:{pe_black}; padding:0 0 4px 0;">
+                        {_esc(ticket_id)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="font-family:{font_stack}; font-size:11px; font-weight:900; letter-spacing:0.1em;
+                                 text-transform:uppercase; color:{pe_darkgray}; padding:4px 12px 0 0; vertical-align:top;">
+                        Title
+                      </td>
+                      <td style="font-family:{font_stack}; font-size:14px; font-weight:600; color:{pe_black}; padding:4px 0 0 0;">
+                        {_esc(task_name) or '(unnamed)'}
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        """
+    else:
+        ticket_block = f"""
+        <tr>
+          <td style="padding:0 32px 24px 32px; font-family:{font_stack}; font-size:14px; color:{pe_darkgray};">
+            Your request does not require a ticket; our team will review it.
+          </td>
+        </tr>
+        """
+
+    eta_block = ""
+    if eta:
+        eta_block = f"""
+        <tr>
+          <td style="padding:0 32px 24px 32px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="font-family:{font_stack}; font-size:11px; font-weight:900; letter-spacing:0.1em;
+                           text-transform:uppercase; color:{pe_darkgray}; padding-bottom:6px;">
+                  ⏱ Target Response
+                </td>
+              </tr>
+              <tr>
+                <td style="font-family:{font_stack}; font-size:16px; font-weight:600; color:{pe_black};">
+                  {_esc(eta)}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        """
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PEC Assist</title>
+</head>
+<body style="margin:0; padding:0; background-color:{pe_gray};">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:{pe_gray};">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+
+        <!-- Card: thick black border conveys the industrial design system in an email-safe way -->
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600"
+               style="max-width:600px; background-color:#ffffff; border:3px solid {pe_black};">
+          <tr>
+            <td style="padding:0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                     style="background-color:#ffffff;">
+
+                <!-- Header / logo bar -->
+                <tr>
+                  <td style="padding:20px 32px; border-bottom:4px solid {pe_black}; background-color:#ffffff;">
+                    <img src="cid:peclogo" alt="PEC" width="120" style="display:block; max-width:120px; height:auto; border:0;">
+                  </td>
+                </tr>
+
+                <!-- Intent + urgency badge -->
+                <tr>
+                  <td style="padding:24px 32px 12px 32px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="font-family:{font_stack}; font-size:18px; font-weight:900; letter-spacing:-0.025em;
+                                   text-transform:uppercase; color:{pe_black}; padding-right:12px;">
+                          {_esc(intent_display)}
+                        </td>
+                        <td style="padding:0;">
+                          <span style="display:inline-block; padding:4px 10px; border:2px solid {pe_black};
+                                       background-color:{badge_bg}; color:{badge_fg};
+                                       font-family:{font_stack}; font-size:11px; font-weight:900; letter-spacing:0.1em;
+                                       text-transform:uppercase;">
+                            {_esc(badge_label)}
+                          </span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Greeting + intro -->
+                <tr>
+                  <td style="padding:0 32px 16px 32px; font-family:{font_stack}; font-size:16px; font-weight:500; color:{pe_black};">
+                    {_esc(greeting)}
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 32px 24px 32px; font-family:{font_stack}; font-size:14px; font-weight:500;
+                             color:{pe_darkgray}; line-height:1.5;">
+                    Thank you for contacting PEC Assist. We've received your request and created a support ticket.
+                  </td>
+                </tr>
+
+                <!-- Summary card -->
+                <tr>
+                  <td style="padding:0 32px 24px 32px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                           style="border:3px solid {pe_black}; background-color:{pe_gray};">
+                      <tr>
+                        <td style="padding:12px 16px; border-bottom:3px solid {pe_black}; background-color:#ffffff;
+                                   font-family:{font_stack}; font-size:12px; font-weight:900; letter-spacing:0.1em;
+                                   color:{pe_black}; text-transform:uppercase;">
+                          Summary
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding:16px; font-family:{font_stack}; font-size:14px; font-weight:500;
+                                   color:{pe_black}; line-height:1.5;">
+                          {_esc(summary)}
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                {ticket_block}
+                {eta_block}
+
+                <!-- Footer -->
+                <tr>
+                  <td style="padding:20px 32px; border-top:3px solid {pe_black}; background-color:{pe_gray};
+                             font-family:{font_stack}; font-size:12px; font-weight:600; letter-spacing:0.05em;
+                             color:{pe_darkgray}; text-transform:uppercase;">
+                    This is an automated response from PEC Assist<br>
+                    <span style="font-family:'JetBrains Mono', Consolas, monospace; font-size:11px; text-transform:none; letter-spacing:0;">
+                      pec.assist@pecalum.com
+                    </span>
+                  </td>
+                </tr>
+
+              </table>
+            </td>
+          </tr>
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
 
 
 def build_asana_task_payload(
@@ -368,7 +662,20 @@ class SMTPEmailSender:
         self.sender_address = sender_address or os.getenv("SENDER_ADDRESS", self.user or "pec.assist@pecalum.com")
         self.mock = mock
 
-    async def send_reply(self, to_email: str, subject: str, body: str) -> dict:
+    async def send_reply(
+        self,
+        to_email: str,
+        subject: str,
+        text_body: str,
+        html_body: Optional[str] = None,
+        inline_images: Optional[dict[str, str]] = None,
+    ) -> dict:
+        """Send a reply email.
+
+        inline_images: mapping of Content-ID (e.g. "peclogo") -> local file path.
+        When provided alongside html_body, the message is sent as multipart/related
+        so the HTML can reference <img src="cid:peclogo">.
+        """
         if self.mock:
             return {"message_id": "mock-smtp-reply", "status": "Mock sent"}
 
@@ -376,15 +683,48 @@ class SMTPEmailSender:
             raise RuntimeError("IMAP_PASSWORD not configured (required for SMTP auth)")
 
         from email.mime.text import MIMEText
-        from email.utils import formatdate
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.image import MIMEImage
+        from email.utils import formatdate, make_msgid
+        import mimetypes
         import aiosmtplib
 
-        msg = MIMEText(body, "plain", "utf-8")
+        text_part = MIMEText(text_body, "plain", "utf-8")
+
+        if html_body is None:
+            msg = text_part
+        else:
+            html_part = MIMEText(html_body, "html", "utf-8")
+            alternative = MIMEMultipart("alternative")
+            alternative.attach(text_part)
+            alternative.attach(html_part)
+
+            if inline_images:
+                related = MIMEMultipart("related")
+                related.attach(alternative)
+                for cid, path in inline_images.items():
+                    try:
+                        with open(path, "rb") as f:
+                            data = f.read()
+                    except OSError as e:
+                        logger.warning(f"Inline image '{cid}' at {path} unreadable: {e}")
+                        continue
+                    ctype, _ = mimetypes.guess_type(path)
+                    subtype = ctype.split("/")[1] if ctype and ctype.startswith("image/") else "png"
+                    img = MIMEImage(data, _subtype=subtype)
+                    img.add_header("Content-ID", f"<{cid}>")
+                    img.add_header("Content-Disposition", "inline", filename=os.path.basename(path))
+                    related.attach(img)
+                msg = related
+            else:
+                msg = alternative
+
         msg["Subject"] = f"Re: {subject}"
         msg["From"] = self.sender_address
         msg["To"] = to_email
         msg["Date"] = formatdate(localtime=True)
         msg["Reply-To"] = self.sender_address
+        msg["Message-ID"] = make_msgid(domain=self.sender_address.split("@")[-1])
 
         await aiosmtplib.send(
             msg,
@@ -767,11 +1107,21 @@ class EmailPipeline:
 
         # 4. Send auto-reply
         try:
-            reply_body = format_auto_reply(classification, asana_task_url)
+            ar = result["asana_response"] or {}
+            text_body, html_body = format_auto_reply(
+                classification=classification,
+                from_name=email.get("from_name"),
+                ticket_id=ar.get("friendly_id") or ar.get("task_id"),
+                task_name=ar.get("task_name"),
+                due_on=ar.get("due_on"),
+                due_at=ar.get("due_at"),
+            )
             await self.email_sender.send_reply(
                 to_email=email["from_email"],
                 subject=email["subject"],
-                body=reply_body,
+                text_body=text_body,
+                html_body=html_body,
+                inline_images=_logo_inline_images(),
             )
             result["reply_sent"] = True
             logger.info("Auto-reply sent", extra={"correlation_id": correlation_id})

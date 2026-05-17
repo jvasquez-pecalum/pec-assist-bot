@@ -2,6 +2,7 @@
 Unit tests for Email Task Service business logic.
 """
 
+import asyncio
 import pytest
 from services import (
     build_asana_task_payload,
@@ -41,10 +42,21 @@ class TestFormatAutoReply:
             "urgency": "high",
             "summary": "Forgot my password",
         }
-        reply = format_auto_reply(classification, "https://app.asana.com/0/123/456")
-        assert "Password Reset" in reply
-        assert "HIGH" in reply
-        assert "https://app.asana.com/0/123/456" in reply
+        text, html = format_auto_reply(
+            classification=classification,
+            from_name="Alice Smith",
+            ticket_id="ID-49",
+            task_name="🟠 [Password Reset] Reset for Alice",
+            due_on="2026-05-20",
+            due_at=None,
+        )
+        assert "Password Reset" in text
+        assert "HIGH" in text
+        assert "ID-49" in text
+        assert "Hello Alice," in text
+        assert "<html" in html.lower()
+        assert "ID-49" in html
+        assert "cid:peclogo" in html
 
     def test_without_task(self):
         classification = {
@@ -52,9 +64,18 @@ class TestFormatAutoReply:
             "urgency": "low",
             "summary": "Just saying hello",
         }
-        reply = format_auto_reply(classification, None)
-        assert "General Inquiry" in reply
-        assert "does not require a ticket" in reply
+        text, html = format_auto_reply(
+            classification=classification,
+            from_name=None,
+            ticket_id=None,
+            task_name=None,
+            due_on=None,
+            due_at=None,
+        )
+        assert "General Inquiry" in text
+        assert "does not require a ticket" in text
+        assert "Hello," in text  # no first name → generic greeting
+        assert "does not require a ticket" in html
 
 
 class TestBuildAsanaTaskPayload:
@@ -83,17 +104,17 @@ class TestBuildAsanaTaskPayload:
 class TestMockServices:
     def test_mock_classifier(self):
         classifier = OpenAIClassifier(mock=True)
-        result = pytest.anyio.run(classifier.classify("test", "body", "Name", "email@test.com"))
+        result = asyncio.run(classifier.classify("test", "body", "Name", "email@test.com"))
         assert result["intent"] == "general_inquiry"
         assert result["requires_task"] is True
 
     def test_mock_asana_client(self):
         client = AsanaTaskClient(mock=True)
-        result = pytest.anyio.run(client.create_task({"title": "test"}))
+        result = asyncio.run(client.create_task({"title": "test"}))
         assert result["success"] is True
         assert "mock-task" in result["task_id"]
 
     def test_mock_smtp_sender(self):
         sender = SMTPEmailSender(mock=True)
-        result = pytest.anyio.run(sender.send_reply("to@test.com", "Subject", "Body"))
+        result = asyncio.run(sender.send_reply("to@test.com", "Subject", text_body="Body"))
         assert result["status"] == "Mock sent"
