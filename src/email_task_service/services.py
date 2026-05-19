@@ -935,14 +935,37 @@ class GraphEmailClient:
 
     @staticmethod
     def _html_to_text(html: str) -> str:
-        """Minimal HTML-to-text conversion for email bodies."""
+        """HTML-to-text conversion for email bodies.
+
+        Strips hidden preheader divs (Outlook injects these for inbox preview),
+        the Inky/Defender 'Report This Email' anti-phish widget, decodes HTML
+        entities, and preserves paragraph structure.
+        """
         import re
-        text = re.sub(r'<br\s*/?>', '\n', html, flags=re.IGNORECASE)
-        text = re.sub(r'</p>', '\n\n', text, flags=re.IGNORECASE)
-        text = re.sub(r'<[^>]+>', '', text)
-        # Collapse multiple blank lines
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        return text.strip()
+        s = html
+        # Drop <script>/<style> blocks entirely
+        s = re.sub(r'<(script|style)[^>]*>[\s\S]*?</\1>', ' ', s, flags=re.IGNORECASE)
+        # Drop elements with display:none / visibility:hidden (Outlook preheader)
+        s = re.sub(
+            r'<([a-z]+)[^>]*style="[^"]*(display\s*:\s*none|visibility\s*:\s*hidden)[^"]*"[^>]*>[\s\S]*?</\1>',
+            ' ', s, flags=re.IGNORECASE,
+        )
+        # Drop the Inky/Defender 'Report This Email' widget and anchor variants
+        s = re.sub(r'<div[^>]*class="[^"]*\bipw\b[^"]*"[^>]*>[\s\S]*?</div>', ' ', s, flags=re.IGNORECASE)
+        s = re.sub(r'<a[^>]*>\s*Report This Email\s*</a>', ' ', s, flags=re.IGNORECASE)
+        # Preserve paragraph breaks before stripping tags
+        s = re.sub(r'<br\s*/?>', '\n', s, flags=re.IGNORECASE)
+        s = re.sub(r'</(p|div|li|tr)>', '\n', s, flags=re.IGNORECASE)
+        # Strip remaining tags
+        s = re.sub(r'<[^>]+>', ' ', s)
+        # Decode HTML entities (named + numeric)
+        import html as html_module
+        s = html_module.unescape(s)
+        # Collapse whitespace but keep paragraph breaks
+        s = re.sub(r'[ \t\xa0]+', ' ', s)
+        s = re.sub(r'\s*\n\s*', '\n', s)
+        s = re.sub(r'\n{3,}', '\n\n', s)
+        return s.strip()
 
     def fetch_unread(self):
         """Generator yielding unread email dicts from Graph API."""
