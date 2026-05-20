@@ -592,7 +592,6 @@ class OpenAIClassifier:
                 {"role": "system", "content": "You are an IT support classifier."},
                 {"role": "user", "content": prompt},
             ],
-            "temperature": 0.1,
             "max_tokens": 300,
         }
 
