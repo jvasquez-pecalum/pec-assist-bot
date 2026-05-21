@@ -448,7 +448,7 @@ def _render_html_reply(
 
                 <!-- Header / logo bar -->
                 <tr>
-                  <td style="padding:20px 32px; border-bottom:4px solid {pe_black}; background-color:#ffffff;">
+                  <td style="padding:12px 32px; border-bottom:4px solid {pe_black}; background-color:{pe_yellow};">
                     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                       <tr>
                         <td style="vertical-align:middle;">
@@ -460,7 +460,7 @@ def _render_html_reply(
                             Ticket Received &#10003;
                           </div>
                           <div style="font-family:'JetBrains Mono', Consolas, monospace; font-size:11px; font-weight:500;
-                                      color:#666666; margin-top:4px; letter-spacing:0;">
+                                      color:{pe_black}; margin-top:4px; letter-spacing:0;">
                             {_esc(received_at) if received_at else ""}
                           </div>
                         </td>
