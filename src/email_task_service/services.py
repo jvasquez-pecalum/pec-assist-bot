@@ -304,6 +304,8 @@ def format_auto_reply(
     text_lines += ["", "---", "This is an automated response from PEC Assist."]
     text_body = "\n".join(text_lines)
 
+    received_at = datetime.now(timezone.utc).strftime("%-d %b %Y · %H:%M UTC")
+
     html_body = _render_html_reply(
         greeting=greeting,
         intent_display=intent_display,
@@ -312,6 +314,7 @@ def format_auto_reply(
         ticket_id=ticket_id,
         task_name=task_name,
         eta=eta,
+        received_at=received_at,
     )
     return text_body, html_body
 
@@ -336,6 +339,7 @@ def _render_html_reply(
     ticket_id: Optional[str],
     task_name: Optional[str],
     eta: Optional[str],
+    received_at: Optional[str] = None,
 ) -> str:
     """Render the branded HTML auto-reply (table-based, inline CSS, email-safe)."""
     pe_black = "#111111"
@@ -445,7 +449,23 @@ def _render_html_reply(
                 <!-- Header / logo bar -->
                 <tr>
                   <td style="padding:20px 32px; border-bottom:4px solid {pe_black}; background-color:#ffffff;">
-                    <img src="cid:peclogo" alt="PEC" width="120" style="display:block; max-width:120px; height:auto; border:0;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                      <tr>
+                        <td style="vertical-align:middle;">
+                          <img src="cid:peclogo" alt="PEC" width="120" style="display:block; max-width:120px; height:auto; border:0;">
+                        </td>
+                        <td style="vertical-align:middle; text-align:right;">
+                          <div style="font-family:{font_stack}; font-size:13px; font-weight:900; letter-spacing:0.05em;
+                                      text-transform:uppercase; color:{pe_black};">
+                            Ticket Received &#10003;
+                          </div>
+                          <div style="font-family:'JetBrains Mono', Consolas, monospace; font-size:11px; font-weight:500;
+                                      color:#666666; margin-top:4px; letter-spacing:0;">
+                            {_esc(received_at) if received_at else ""}
+                          </div>
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
 
