@@ -347,24 +347,32 @@ async def create_task(request: Request, task: TaskRequest, _key: str = Security(
             task_url = f"https://app.asana.com/0/{ASANA_PROJECT_ID}/{task_id}" if ASANA_PROJECT_ID else None
 
             if task_id:
-                try:
-                    await asyncio.sleep(1)
-                    refetch = await client.get(
-                        f"{ASANA_API_BASE}/tasks/{task_id}?opt_fields=custom_fields,custom_fields.display_value,custom_fields.name",
-                        headers={
-                            "Authorization": f"Bearer {ASANA_TOKEN}",
-                            "Accept": "application/json",
-                        },
-                        timeout=10.0,
-                    )
-                    refetch.raise_for_status()
-                    refetch_data = refetch.json()
-                    if "data" in refetch_data and "custom_fields" in refetch_data["data"]:
-                        asana_data["data"]["custom_fields"] = refetch_data["data"]["custom_fields"]
-                except Exception as e:
-                    logger.warning(f"Failed to re-fetch task custom fields: {e}")
+                for attempt, delay in enumerate([1, 2, 3], 1):
+                    try:
+                        await asyncio.sleep(delay)
+                        refetch = await client.get(
+                            f"{ASANA_API_BASE}/tasks/{task_id}?opt_fields=custom_fields,custom_fields.display_value,custom_fields.name",
+                            headers={
+                                "Authorization": f"Bearer {ASANA_TOKEN}",
+                                "Accept": "application/json",
+                            },
+                            timeout=10.0,
+                        )
+                        refetch.raise_for_status()
+                        refetch_data = refetch.json()
+                        fields = refetch_data.get("data", {}).get("custom_fields", [])
+                        if fields:
+                            asana_data["data"]["custom_fields"] = fields
+                        if _extract_friendly_id(fields):
+                            break
+                        logger.debug(f"friendly_id not populated yet (attempt {attempt}/3)")
+                    except Exception as e:
+                        logger.warning(f"Failed to re-fetch task custom fields (attempt {attempt}/3): {e}")
 
             friendly_id = _extract_friendly_id(asana_data.get("data", {}).get("custom_fields", []))
+            if not friendly_id:
+                logger.warning(f"friendly_id not found after retries for task {task_id}; using GID as fallback")
+                friendly_id = task_id
             logger.info(f"Task created successfully: gid={task_id} friendly_id={friendly_id}")
 
             return TaskResponse(
